@@ -1,0 +1,28 @@
+name: Daily AI Instagram Newsletter
+on:
+  schedule:
+    - cron: '0 8 * * *' # Runs at 8:00 AM UTC every day
+  workflow_dispatch: # Allows manual trigger
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install @google/genai rss-parser
+
+      - name: Run AI Bot
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          INSTA_PAGE_ID: ${{ secrets.INSTA_PAGE_ID }}
+          INSTA_ACCESS_TOKEN: ${{ secrets.INSTA_ACCESS_TOKEN }}
+          IMGBB_API_KEY: ${{ secrets.IMGBB_API_KEY }}
+        run: node bot.js
