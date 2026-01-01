@@ -4,12 +4,11 @@ const Parser = require("rss-parser");
 
 const CONFIG = {
   GEMINI_KEY: process.env.GEMINI_API_KEY,
-  INSTA_PAGE_ID: process.env.INSTA_PAGE_ID,
+  INSTA_ID: process.env.INSTA_PAGE_ID, // This MUST be the Instagram Business Account ID
   INSTA_TOKEN: process.env.INSTA_ACCESS_TOKEN,
   IMGBB_KEY: process.env.IMGBB_API_KEY,
   TONE: "Hyped & Energetic",
-  // Professional fallback image if AI generation is blocked by quota
-  FALLBACK_IMAGE: "https://images.unsplash.com/photo-1677442136019-21780ecad995?q=80&w=1000&auto=format&fit=crop" 
+  FALLBACK_IMAGE: "https://images.unsplash.com/photo-1611162617213-7d7a39e9b1d7?q=80&w=1000&auto=format&fit=crop" 
 };
 
 const parser = new Parser();
@@ -17,25 +16,25 @@ const ai = new GoogleGenAI({ apiKey: CONFIG.GEMINI_KEY });
 
 async function run() {
   console.log("-----------------------------------------");
-  console.log("🚀 STARTING RESILIENT AI BOT");
+  console.log("🚀 STARTING INSTAGRAM BOT V2.1");
   console.log("-----------------------------------------");
 
-  // 1. FETCH NEWS (Text usually works on Free Tier)
-  console.log("[1/4] 📡 Fetching News...");
-  const sources = ["https://techcrunch.com/category/artificial-intelligence/feed/"];
+  // 1. FETCH NEWS
+  console.log("[1/4] 📡 Fetching RSS Feeds...");
   let allItems = [];
   try {
-    const feed = await parser.parseURL(sources[0]);
+    const feed = await parser.parseURL("https://techcrunch.com/category/artificial-intelligence/feed/");
     allItems = feed.items.slice(0, 3);
+    console.log("   ✅ News items retrieved.");
   } catch (e) {
-    throw new Error("Could not fetch RSS feed.");
+    throw new Error("RSS Fetch Failed: " + e.message);
   }
 
-  // 2. GENERATE TEXT (Gemini 3 Flash Free Tier is stable)
-  console.log("[2/4] 🤖 Generating Viral Text...");
+  // 2. GENERATE TEXT
+  console.log("[2/4] 🤖 Generating Viral Copy...");
   const contentResponse = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
-    contents: `Create a hyped Instagram post summary for: ${JSON.stringify(allItems.map(i => i.title))}. Tone: ${CONFIG.TONE}`,
+    contents: `Summarize for IG: ${JSON.stringify(allItems.map(i => i.title))}. Tone: ${CONFIG.TONE}`,
     config: {
       responseMimeType: "application/json",
       responseSchema: {
@@ -50,44 +49,38 @@ async function run() {
   });
   const postData = JSON.parse(contentResponse.text);
 
-  // 3. IMAGE LOGIC (The "Fallback Hack")
-  console.log("[3/4] 🎨 Attempting AI Image Generation...");
+  // 3. IMAGE LOGIC
+  console.log("[3/4] 🎨 Preparing Media...");
   let finalImageUrl = CONFIG.FALLBACK_IMAGE;
-  
   try {
     const imageResponse = await ai.models.generateContent({
       model: 'gemini-2.5-flash-image',
-      contents: { parts: [{ text: "Futuristic abstract tech background, neon blues and purples, 8k" }] },
-      config: { imageConfig: { aspectRatio: "1:1" } }
+      contents: { parts: [{ text: "Abstract tech background, neon, professional" }] },
     });
-    
     const imgPart = imageResponse.candidates[0].content.parts.find(p => p.inlineData);
     if (imgPart) {
-      console.log("   ✅ AI Image Generated! Uploading to ImgBB...");
       const formData = new URLSearchParams();
       formData.append("image", imgPart.inlineData.data);
-      const imgbbRes = await fetch(`https://api.imgbb.com/1/upload?key=${CONFIG.IMGBB_KEY}`, {
-        method: "POST",
-        body: formData
-      });
+      const imgbbRes = await fetch(`https://api.imgbb.com/1/upload?key=${CONFIG.IMGBB_KEY}`, { method: "POST", body: formData });
       const imgbbJson = await imgbbRes.json();
       finalImageUrl = imgbbJson.data.url;
     }
   } catch (err) {
-    if (err.message.includes("429") || err.message.includes("quota")) {
-      console.warn("   ⚠️ QUOTA EXCEEDED (429). Switching to Professional Fallback Image...");
-      console.warn("   💡 Tip: Enable billing at ai.google.dev/gemini-api/docs/billing to unlock AI images.");
-      // finalImageUrl remains the Unsplash fallback defined in CONFIG
-    } else {
-      console.error("   ❌ Unexpected Image Error:", err.message);
-    }
+    console.warn("   ⚠️ Image Quota Limit Hit. Using Fallback.");
   }
 
   // 4. POST TO INSTAGRAM
-  console.log("[4/4] 📱 Publishing to Instagram...");
-  console.log("   🔗 Using Image: " + finalImageUrl);
+  console.log("[4/4] 📱 Publishing to Meta Graph...");
   
-  const containerRes = await fetch(`https://graph.facebook.com/v20.0/${CONFIG.INSTA_PAGE_ID}/media`, {
+  // META DEBUG: Check for common ID error
+  if (!CONFIG.INSTA_ID || CONFIG.INSTA_ID.length < 5) {
+    throw new Error("INSTA_PAGE_ID is missing or too short.");
+  }
+
+  const endpoint = `https://graph.facebook.com/v20.0/${CONFIG.INSTA_ID}/media`;
+  console.log(`   📡 Target: ${endpoint}`);
+
+  const containerRes = await fetch(endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -98,16 +91,29 @@ async function run() {
   });
   
   const container = await containerRes.json();
-  if (container.error) throw new Error("Meta Error: " + container.error.message);
+  
+  if (!containerRes.ok || container.error) {
+    console.error("   ❌ META GRAPH REJECTED REQUEST");
+    console.error("   MESSAGE: " + (container.error?.message || "Unknown Meta Error"));
+    console.error("   CODE: " + (container.error?.code || "N/A"));
+    
+    if (container.error?.message?.includes("singular statuses")) {
+      console.error("\n   💡 FIX DETECTED: This error usually means your INSTA_PAGE_ID is a 'Facebook Page ID'.");
+      console.error("   💡 You MUST use the 'Instagram Business Account ID' instead.");
+    }
+    throw new Error("Meta Graph Media Container Creation Failed.");
+  }
 
-  const publishRes = await fetch(`https://graph.facebook.com/v20.0/${CONFIG.INSTA_PAGE_ID}/media_publish`, {
+  const publishRes = await fetch(`https://graph.facebook.com/v20.0/${CONFIG.INSTA_ID}/media_publish`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ creation_id: container.id, access_token: CONFIG.INSTA_TOKEN })
   });
 
+  const publishJson = await publishRes.json();
   console.log("-----------------------------------------");
-  console.log("✅ DONE! Post successfully pushed to IG.");
+  console.log("✅ SUCCESS! POST IS LIVE.");
+  console.log("ID: " + publishJson.id);
   console.log("-----------------------------------------");
 }
 
