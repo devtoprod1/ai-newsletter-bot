@@ -4,7 +4,7 @@ const Parser = require("rss-parser");
 
 const CONFIG = {
   GEMINI_KEY: process.env.GEMINI_API_KEY,
-  INSTA_ID: process.env.INSTA_PAGE_ID, // This MUST be the Instagram Business Account ID
+  INSTA_ID: process.env.INSTA_PAGE_ID, 
   INSTA_TOKEN: process.env.INSTA_ACCESS_TOKEN,
   IMGBB_KEY: process.env.IMGBB_API_KEY,
   TONE: "Hyped & Energetic",
@@ -16,7 +16,7 @@ const ai = new GoogleGenAI({ apiKey: CONFIG.GEMINI_KEY });
 
 async function run() {
   console.log("-----------------------------------------");
-  console.log("🚀 STARTING INSTAGRAM BOT V2.1");
+  console.log("🚀 STARTING INSTAGRAM BOT V2.2 (AUTH CHECK)");
   console.log("-----------------------------------------");
 
   // 1. FETCH NEWS
@@ -25,10 +25,7 @@ async function run() {
   try {
     const feed = await parser.parseURL("https://techcrunch.com/category/artificial-intelligence/feed/");
     allItems = feed.items.slice(0, 3);
-    console.log("   ✅ News items retrieved.");
-  } catch (e) {
-    throw new Error("RSS Fetch Failed: " + e.message);
-  }
+  } catch (e) { throw new Error("RSS Fetch Failed."); }
 
   // 2. GENERATE TEXT
   console.log("[2/4] 🤖 Generating Viral Copy...");
@@ -65,22 +62,12 @@ async function run() {
       const imgbbJson = await imgbbRes.json();
       finalImageUrl = imgbbJson.data.url;
     }
-  } catch (err) {
-    console.warn("   ⚠️ Image Quota Limit Hit. Using Fallback.");
-  }
+  } catch (err) { console.warn("   ⚠️ Image Quota Limit Hit. Using Fallback."); }
 
   // 4. POST TO INSTAGRAM
   console.log("[4/4] 📱 Publishing to Meta Graph...");
   
-  // META DEBUG: Check for common ID error
-  if (!CONFIG.INSTA_ID || CONFIG.INSTA_ID.length < 5) {
-    throw new Error("INSTA_PAGE_ID is missing or too short.");
-  }
-
-  const endpoint = `https://graph.facebook.com/v20.0/${CONFIG.INSTA_ID}/media`;
-  console.log(`   📡 Target: ${endpoint}`);
-
-  const containerRes = await fetch(endpoint, {
+  const containerRes = await fetch(`https://graph.facebook.com/v20.0/${CONFIG.INSTA_ID}/media`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -94,12 +81,13 @@ async function run() {
   
   if (!containerRes.ok || container.error) {
     console.error("   ❌ META GRAPH REJECTED REQUEST");
-    console.error("   MESSAGE: " + (container.error?.message || "Unknown Meta Error"));
-    console.error("   CODE: " + (container.error?.code || "N/A"));
+    console.error("   MESSAGE: " + (container.error?.message || "Unknown Error"));
     
-    if (container.error?.message?.includes("singular statuses")) {
-      console.error("\n   💡 FIX DETECTED: This error usually means your INSTA_PAGE_ID is a 'Facebook Page ID'.");
-      console.error("   💡 You MUST use the 'Instagram Business Account ID' instead.");
+    // PERMISSION CHECKER
+    if (containerRes.status === 403 || container.error?.message?.toLowerCase().includes("permission")) {
+      console.error("\n   🚨 PERMISSION ERROR DETECTED!");
+      console.error("   💡 You likely forgot to check 'instagram_content_publish'.");
+      console.error("   💡 Please check your Token permissions in Meta Graph Explorer.");
     }
     throw new Error("Meta Graph Media Container Creation Failed.");
   }
@@ -112,8 +100,7 @@ async function run() {
 
   const publishJson = await publishRes.json();
   console.log("-----------------------------------------");
-  console.log("✅ SUCCESS! POST IS LIVE.");
-  console.log("ID: " + publishJson.id);
+  console.log("✅ SUCCESS! POST IS LIVE. ID: " + publishJson.id);
   console.log("-----------------------------------------");
 }
 
